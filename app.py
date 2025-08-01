@@ -117,46 +117,32 @@ def count_openai_tokens(text, model):
         }
 
 def count_gemini_tokens(text, model):
-    """Count tokens for Gemini models using official Google SDK"""
+    """Count tokens for Gemini models using the official Google SDK"""
     try:
-        if not GEMINI_API_KEY:
-            return {
-                'success': False,
-                'error': 'GEMINI_API_KEY not configured',
-                'model': model
-            }
-        
-        # Normalize model name
         if not model.startswith('models/'):
-            if model.startswith('gemini-'):
-                model_name = f"models/{model}"
-            else:
-                model_name = f"models/gemini-{model}"
+            # The model names in the SDK often have the 'models/' prefix
+            model_name = f'models/{model}'
         else:
             model_name = model
-        
-        # Get the model
-        try:
-            genai_model = genai.GenerativeModel(model_name)
-        except Exception as e:
-            # Try with original model name
-            genai_model = genai.GenerativeModel(model)
-        
-        # Count tokens
+
+        # The `google-generativeai` library has a count_tokens method that
+        # works locally. No API key is needed for this specific function call.
+        genai_model = genai.GenerativeModel(model_name)
         response = genai_model.count_tokens(text)
-        
+
         return {
             'success': True,
             'token_count': response.total_tokens,
             'model': model,
             'text_length': len(text),
-            'characters_per_token': len(text) / response.total_tokens if response.total_tokens > 0 else 0
+            'characters_per_token': len(text) / response.total_tokens if response.total_tokens > 0 else 0,
+            'method': 'local_tokenization'
         }
     except Exception as e:
         logger.error(f"Error counting Gemini tokens: {str(e)}")
         return {
             'success': False,
-            'error': str(e),
+            'error': f"Gemini tokenization failed: {str(e)}",
             'model': model
         }
 
