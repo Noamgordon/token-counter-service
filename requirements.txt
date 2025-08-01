@@ -1,7 +1,4 @@
-flask==3.0.3
-tiktoken==0.7.0
-google-generativeai==0.6.0
-gunicorn==22.0.0
-python-dotenv==1.0.1
-# Added for Gemini tokenization via the official method
-google-cloud-aiplatform==1.49.0
+flask==2.3.3
+tiktoken==0.5.1
+google-cloud-aiplatform[tokenization]==1.57.0
+gunicorn==21.2.0
