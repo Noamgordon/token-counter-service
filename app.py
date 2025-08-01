@@ -4,8 +4,9 @@ import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import logging
-import os
-os.environ["TIKTOKEN_CACHE_DIR"] = "/tmp"
+
+# Load environment variables
+load_dotenv()
 
 # Load environment variables
 load_dotenv()
