@@ -1,26 +1,13 @@
 from flask import Flask, request, jsonify
 import tiktoken
-import google.generativeai as genai
-import os
-from dotenv import load_dotenv
+from vertexai.preview import tokenization
 import logging
-
-# Load environment variables
-load_dotenv()
-
-# Load environment variables
-load_dotenv()
 
 app = Flask(__name__)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Configure Gemini API
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 # OpenAI model to encoding mapping
 OPENAI_MODEL_ENCODINGS = {
@@ -68,18 +55,16 @@ OPENAI_MODEL_ENCODINGS = {
     'ada': 'r50k_base',
 }
 
-# Gemini model names
+# Gemini model names (supported by local tokenizer)
 GEMINI_MODELS = [
-    'gemini-pro',
-    'gemini-pro-vision',
-    'gemini-1.5-pro',
-    'gemini-1.5-flash',
     'gemini-1.0-pro',
-    'models/gemini-pro',
-    'models/gemini-pro-vision',
-    'models/gemini-1.5-pro',
-    'models/gemini-1.5-flash',
-    'models/gemini-1.0-pro'
+    'gemini-1.0-pro-001',
+    'gemini-1.5-pro',
+    'gemini-1.5-pro-001',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-001',
+    'gemini-1.5-flash-002',
+    'gemini-2.0-flash-exp'
 ]
 
 def count_openai_tokens(text, model):
@@ -107,44 +92,42 @@ def count_openai_tokens(text, model):
             'model': model,
             'encoding': encoding.name,
             'text_length': len(text),
-            'tokens_preview': tokens[:10] if len(tokens) > 10 else tokens
+            'tokens_preview': tokens[:10] if len(tokens) > 10 else tokens,
+            'method': 'local_tiktoken'
         }
     except Exception as e:
         logger.error(f"Error counting OpenAI tokens: {str(e)}")
         return {
             'success': False,
             'error': str(e),
-            'model': model
+            'model': model,
+            'method': 'local_tiktoken'
         }
 
 def count_gemini_tokens(text, model):
-    """Count tokens for Gemini models using the official Google SDK"""
+    """Count tokens for Gemini models using local tokenizer (NO API CALLS)"""
     try:
-        if not model.startswith('models/'):
-            # The model names in the SDK often have the 'models/' prefix
-            model_name = f'models/{model}'
-        else:
-            model_name = model
-
-        # The `google-generativeai` library has a count_tokens method that
-        # works locally. No API key is needed for this specific function call.
-        genai_model = genai.GenerativeModel(model_name)
-        response = genai_model.count_tokens(text)
-
+        # Get local tokenizer for the model
+        tokenizer = tokenization.get_tokenizer_for_model(model)
+        
+        # Count tokens locally
+        result = tokenizer.count_tokens(text)
+        
         return {
             'success': True,
-            'token_count': response.total_tokens,
+            'token_count': result.total_tokens,
             'model': model,
             'text_length': len(text),
-            'characters_per_token': len(text) / response.total_tokens if response.total_tokens > 0 else 0,
+            'characters_per_token': len(text) / result.total_tokens if result.total_tokens > 0 else 0,
             'method': 'local_tokenization'
         }
     except Exception as e:
         logger.error(f"Error counting Gemini tokens: {str(e)}")
         return {
             'success': False,
-            'error': f"Gemini tokenization failed: {str(e)}",
-            'model': model
+            'error': str(e),
+            'model': model,
+            'method': 'local_tokenization'
         }
 
 @app.route('/', methods=['GET'])
@@ -176,7 +159,9 @@ def health():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'gemini_configured': bool(GEMINI_API_KEY)
+        'openai_tokenizer': 'tiktoken (local)',
+        'gemini_tokenizer': 'vertexai.tokenization (local)',
+        'no_api_keys_required': True
     })
 
 @app.route('/models', methods=['GET'])
