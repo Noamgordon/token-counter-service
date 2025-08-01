@@ -1,10 +1,12 @@
 # Token Counter Web Service
 
-A web service to count tokens for OpenAI and Gemini models using official tokenizer libraries.
+A web service to count tokens for OpenAI and Gemini models using official LOCAL tokenizer libraries.
 
-## Features
-- OpenAI token counting using tiktoken
-- Gemini token counting using google-generativeai
+## ✅ Key Features
+- **100% FREE** - No API keys or payments required
+- **Completely offline** - All tokenization happens locally
+- OpenAI token counting using tiktoken (local)
+- Gemini token counting using google-cloud-aiplatform (local)
 - RESTful API
 - Support for all major model variants
 - Deployed on Render
