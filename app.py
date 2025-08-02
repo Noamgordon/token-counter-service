@@ -10,52 +10,6 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# OpenAI model to encoding mapping
-OPENAI_MODEL_ENCODINGS = {
-    # GPT-4 models
-    'gpt-4': 'cl100k_base',
-    'gpt-4-0314': 'cl100k_base',
-    'gpt-4-0613': 'cl100k_base',
-    'gpt-4-32k': 'cl100k_base',
-    'gpt-4-32k-0314': 'cl100k_base',
-    'gpt-4-32k-0613': 'cl100k_base',
-    'gpt-4-turbo': 'cl100k_base',
-    'gpt-4-turbo-preview': 'cl100k_base',
-    'gpt-4-0125-preview': 'cl100k_base',
-    'gpt-4-1106-preview': 'cl100k_base',
-    'gpt-4-vision-preview': 'cl100k_base',
-    'gpt-4-1106-vision-preview': 'cl100k_base',
-    
-    # GPT-4o models
-    'gpt-4o': 'o200k_base',
-    'gpt-4o-2024-05-13': 'o200k_base',
-    'gpt-4o-mini': 'o200k_base',
-    'gpt-4o-mini-2024-07-18': 'o200k_base',
-    
-    # GPT-3.5 models
-    'gpt-3.5-turbo': 'cl100k_base',
-    'gpt-3.5-turbo-0301': 'cl100k_base',
-    'gpt-3.5-turbo-0613': 'cl100k_base',
-    'gpt-3.5-turbo-16k': 'cl100k_base',
-    'gpt-3.5-turbo-16k-0613': 'cl100k_base',
-    'gpt-3.5-turbo-1106': 'cl100k_base',
-    'gpt-3.5-turbo-0125': 'cl100k_base',
-    
-    # Text embedding models
-    'text-embedding-ada-002': 'cl100k_base',
-    'text-embedding-3-small': 'cl100k_base',
-    'text-embedding-3-large': 'cl100k_base',
-    
-    # Other models
-    'text-davinci-003': 'p50k_base',
-    'text-davinci-002': 'p50k_base',
-    'code-davinci-002': 'p50k_base',
-    'davinci': 'r50k_base',
-    'curie': 'r50k_base',
-    'babbage': 'r50k_base',
-    'ada': 'r50k_base',
-}
-
 # Gemini model names (supported by local tokenizer)
 GEMINI_MODELS = [
     'gemini-1.0-pro',
@@ -71,17 +25,9 @@ GEMINI_MODELS = [
 def count_openai_tokens(text, model):
     """Count tokens for OpenAI models using tiktoken"""
     try:
-        # Get encoding for the model
-        if model in OPENAI_MODEL_ENCODINGS:
-            encoding_name = OPENAI_MODEL_ENCODINGS[model]
-            encoding = tiktoken.get_encoding(encoding_name)
-        else:
-            # Try to get encoding directly for the model
-            try:
-                encoding = tiktoken.encoding_for_model(model)
-            except KeyError:
-                # Default to cl100k_base for unknown models
-                encoding = tiktoken.get_encoding("cl100k_base")
+        # Use tiktoken.encoding_for_model, which is more resilient
+        # and automatically handles model-to-encoding mapping and fallbacks.
+        encoding = tiktoken.encoding_for_model(model)
         
         # Count tokens
         tokens = encoding.encode(text)
@@ -137,7 +83,7 @@ def home():
     return jsonify({
         'service': 'Token Counter API',
         'status': 'active',
-        'version': '2.0.0', # Updated version
+        'version': '2.0.1', # Updated version
         'endpoints': {
             '/count': 'POST - Count tokens for a batch of texts',
             '/models': 'GET - List supported models',
@@ -175,10 +121,12 @@ def health():
 @app.route('/models', methods=['GET'])
 def list_models():
     """List all supported models"""
+    # Note: We can no longer list OpenAI models explicitly as we rely on tiktoken's internal mapping.
+    # We will list the known Gemini models.
     return jsonify({
-        'openai_models': list(OPENAI_MODEL_ENCODINGS.keys()),
+        'openai_models': 'Dynamically supported by tiktoken library',
         'gemini_models': GEMINI_MODELS,
-        'total_models': len(OPENAI_MODEL_ENCODINGS) + len(GEMINI_MODELS)
+        'total_models': len(GEMINI_MODELS)
     })
 
 @app.route('/count', methods=['POST'])
