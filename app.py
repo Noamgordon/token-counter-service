@@ -108,13 +108,15 @@ def compare_phrases():
         final_response = []
 
         for req in batch_requests:
+            id = req.get('id') # Extract the ID from the incoming request
             category = req.get('category')
             phrases = req.get('phrases')
             models = req.get('models')
 
             if not all([category, phrases, models]) or not isinstance(phrases, list) or not isinstance(models, list):
                 logger.error(f"Invalid request object in batch: {req}")
-                final_response.append({'category': category, 'error': 'Invalid format in request object.'})
+                # Include ID in the error response
+                final_response.append({'id': id, 'category': category, 'error': 'Invalid format in request object.'})
                 continue
             
             results_by_model = {}
@@ -148,6 +150,7 @@ def compare_phrases():
                     results_by_model[model_name] = {'best_match': best_match}
             
             final_response.append({
+                'id': id, # Include the ID in the final response
                 'category': category,
                 'results_by_model': results_by_model
             })
