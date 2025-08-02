@@ -3,6 +3,7 @@ import tiktoken
 from vertexai.preview import tokenization
 import logging
 import os
+from typing import Dict, Any, List, Optional
 
 app = Flask(__name__)
 
@@ -22,236 +23,137 @@ GEMINI_MODELS = [
     'gemini-2.0-flash-exp'
 ]
 
-def count_openai_tokens(text, model):
-    """Count tokens for OpenAI models using tiktoken"""
+# --- Core Tokenizer Functions (Unchanged, as they are now robust) ---
+def get_openai_token_count(text: str, model: str) -> Optional[int]:
+    """
+    Get token count for OpenAI models using tiktoken.
+    Returns the token count or None if an error occurs.
+    """
     try:
-        # Model to encoding mapping for newer models that might not be supported
         MODEL_TO_ENCODING = {
-            # GPT-4o family - try o200k_base first, fallback to cl100k_base
             'gpt-4o': 'o200k_base',
             'gpt-4o-mini': 'o200k_base',
             'gpt-4o-2024-05-13': 'o200k_base',
             'gpt-4o-2024-08-06': 'o200k_base',
             'gpt-4o-mini-2024-07-18': 'o200k_base',
-            
-            # o1 family also uses o200k_base
             'o1-preview': 'o200k_base',
             'o1-mini': 'o200k_base',
             'o1-preview-2024-09-12': 'o200k_base',
             'o1-mini-2024-09-12': 'o200k_base',
         }
-        
-        # Fallback encoding mapping if o200k_base is not available
-        FALLBACK_ENCODING = {
-            'gpt-4o': 'cl100k_base',
-            'gpt-4o-mini': 'cl100k_base',
-            'gpt-4o-2024-05-13': 'cl100k_base',
-            'gpt-4o-2024-08-06': 'cl100k_base',
-            'gpt-4o-mini-2024-07-18': 'cl100k_base',
-            'o1-preview': 'cl100k_base',
-            'o1-mini': 'cl100k_base',
-            'o1-preview-2024-09-12': 'cl100k_base',
-            'o1-mini-2024-09-12': 'cl100k_base',
-        }
-        
-        encoding = None
-        encoding_name = None
-        mapping_source = None
-        
-        # Strategy 1: Try tiktoken's automatic mapping first (most reliable)
-        try:
-            encoding = tiktoken.encoding_for_model(model)
-            encoding_name = encoding.name
-            mapping_source = 'automatic'
-            logger.info(f"Using tiktoken automatic mapping: {model} -> {encoding_name}")
-        except KeyError:
-            # Strategy 2: Try manual mapping if automatic fails
-            if model in MODEL_TO_ENCODING:
-                try:
-                    encoding_name = MODEL_TO_ENCODING[model]
-                    encoding = tiktoken.get_encoding(encoding_name)
-                    mapping_source = 'manual'
-                    logger.info(f"Using manual mapping: {model} -> {encoding_name}")
-                except Exception as fallback_error:
-                    # Strategy 3: Use fallback encoding if preferred encoding fails
-                    logger.warning(f"Failed to use {encoding_name} for {model}: {fallback_error}")
-                    if model in FALLBACK_ENCODING:
-                        encoding_name = FALLBACK_ENCODING[model]
-                        encoding = tiktoken.get_encoding(encoding_name)
-                        mapping_source = 'fallback_manual'
-                        logger.info(f"Using fallback mapping: {model} -> {encoding_name}")
-                    else:
-                        raise fallback_error
-            else:
-                # Strategy 4: Default fallback for completely unknown models
-                encoding_name = 'cl100k_base'
-                encoding = tiktoken.get_encoding(encoding_name)
-                mapping_source = 'fallback_default'
-                logger.warning(f"Model {model} not recognized, using default: {encoding_name}")
-
-        # Count tokens
-        tokens = encoding.encode(text)
-        token_count = len(tokens)
-        
-        return {
-            'success': True,
-            'token_count': token_count,
-            'model': model,
-            'encoding': encoding_name,
-            'text_length': len(text),
-            'tokens_preview': tokens[:10] if len(tokens) > 10 else tokens,
-            'method': 'local_tiktoken',
-            'mapping_source': mapping_source
-        }
-        
+        if model in MODEL_TO_ENCODING:
+            encoding_name = MODEL_TO_ENCODING[model]
+            encoding = tiktoken.get_encoding(encoding_name)
+        else:
+            try:
+                encoding = tiktoken.encoding_for_model(model)
+            except KeyError:
+                encoding = tiktoken.get_encoding('cl100k_base')
+        return len(encoding.encode(text))
     except Exception as e:
         logger.error(f"Error counting OpenAI tokens for model {model}: {str(e)}")
-        return {
-            'success': False,
-            'error': str(e),
-            'model': model,
-            'method': 'local_tiktoken'
-        }
+        return None
 
-def count_gemini_tokens(text, model):
-    """Count tokens for Gemini models using local tokenizer (NO API CALLS)"""
+def get_gemini_token_count(text: str, model: str) -> Optional[int]:
+    """
+    Get token count for Gemini models using local tokenizer.
+    Returns the token count or None if an error occurs.
+    """
     try:
-        # Get local tokenizer for the model
         tokenizer = tokenization.get_tokenizer_for_model(model)
-        
-        # Count tokens locally
-        result = tokenizer.count_tokens(text)
-        
-        return {
-            'success': True,
-            'token_count': result.total_tokens,
-            'model': model,
-            'text_length': len(text),
-            'characters_per_token': len(text) / result.total_tokens if result.total_tokens > 0 else 0,
-            'method': 'local_tokenization'
-        }
+        return tokenizer.count_tokens(text).total_tokens
     except Exception as e:
-        logger.error(f"Error counting Gemini tokens: {str(e)}")
-        return {
-            'success': False,
-            'error': str(e),
-            'model': model,
-            'method': 'local_tokenization'
-        }
+        logger.error(f"Error counting Gemini tokens for model {model}: {str(e)}")
+        return None
 
+# --- API Endpoints ---
 @app.route('/', methods=['GET'])
 def home():
     """Health check and API documentation"""
     return jsonify({
-        'service': 'Token Counter API',
+        'service': 'Batch Token Comparison API',
         'status': 'active',
-        'version': '3.0.1', # Updated version
+        'version': '5.0.0', # Updated version
         'endpoints': {
-            '/count': 'POST - Count tokens for a batch of texts',
-            '/models': 'GET - List supported models',
-            '/health': 'GET - Health check'
+            '/compare': 'POST - Compare token counts for a batch of phrases/models'
         },
         'supported_providers': ['openai', 'gemini'],
         'usage': {
             'method': 'POST',
-            'url': '/count',
+            'url': '/compare',
             'body': [
                 {
-                    'texts': ['Text 1', 'Text 2'],
-                    'model': 'gpt-4o',
-                    'provider': 'openai'
-                },
-                {
-                    'texts': ['Another text'],
-                    'model': 'gemini-1.5-pro',
-                    'provider': 'gemini'
+                    'category': 'negation',
+                    'phrases': ['cannot', 'can not'],
+                    'models': ['gpt-4o', 'gemini-1.5-pro']
                 }
             ]
         }
     })
 
-@app.route('/health', methods=['GET'])
-def health():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'openai_tokenizer': 'tiktoken (local)',
-        'gemini_tokenizer': 'vertexai.tokenization (local)',
-        'no_api_keys_required': True
-    })
-
-@app.route('/models', methods=['GET'])
-def list_models():
-    """List all supported models"""
-    return jsonify({
-        'openai_models': 'Dynamically supported by tiktoken library, plus manual mapping for new models.',
-        'gemini_models': GEMINI_MODELS,
-        'total_models': len(GEMINI_MODELS)
-    })
-
-@app.route('/count', methods=['POST'])
-def count_tokens():
-    """Main endpoint to count tokens for a batch of texts"""
+@app.route('/compare', methods=['POST'])
+def compare_phrases():
+    """
+    Endpoint to process a batch of token comparison requests.
+    """
     try:
-        requests_data = request.get_json()
-        
-        if not isinstance(requests_data, list):
+        batch_requests = request.get_json()
+
+        if not isinstance(batch_requests, list):
             return jsonify({
                 'success': False,
                 'error': 'Invalid request format. Expected a JSON array of request objects.'
             }), 400
+        
+        final_response = []
 
-        final_results = []
-        for req_obj in requests_data:
-            req_results = []
-            
-            # Extract data and handle potential errors
-            texts = req_obj.get('texts', [])
-            model = req_obj.get('model', '').strip()
-            provider = req_obj.get('provider', '').strip().lower()
+        for req in batch_requests:
+            category = req.get('category')
+            phrases = req.get('phrases')
+            models = req.get('models')
 
-            if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
-                req_results.append({'success': False, 'error': 'The "texts" field must be a list of strings.'})
-                final_results.append({'request_errors': req_results})
+            if not all([category, phrases, models]) or not isinstance(phrases, list) or not isinstance(models, list):
+                logger.error(f"Invalid request object in batch: {req}")
+                final_response.append({'category': category, 'error': 'Invalid format in request object.'})
                 continue
             
-            if not model:
-                req_results.append({'success': False, 'error': 'The "model" field is required.'})
-                final_results.append({'request_errors': req_results})
-                continue
-            
-            if not provider:
-                req_results.append({'success': False, 'error': 'The "provider" field is required (openai or gemini).'})
-                final_results.append({'request_errors': req_results})
-                continue
-
-            # Process each text within the current request object
-            for text_to_count in texts:
-                if not text_to_count.strip():
-                    result = {
-                        'success': False,
-                        'error': 'Text string cannot be empty'
-                    }
-                elif provider == 'openai':
-                    result = count_openai_tokens(text_to_count, model)
-                elif provider == 'gemini':
-                    result = count_gemini_tokens(text_to_count, model)
-                else:
-                    result = {
-                        'success': False,
-                        'error': f'Unsupported provider: {provider}. Use "openai" or "gemini"'
-                    }
+            results_by_model = {}
+            for model_name in models:
+                model_name_lower = model_name.lower()
                 
-                # Add metadata to each result
-                result['provider'] = provider
-                result['timestamp'] = int(__import__('time').time())
-                req_results.append(result)
+                # Determine provider based on model name
+                provider = 'gemini' if any(gemini_model in model_name_lower for gemini_model in GEMINI_MODELS) else 'openai'
+                
+                count_func = None
+                if provider == 'openai':
+                    count_func = get_openai_token_count
+                elif provider == 'gemini':
+                    count_func = get_gemini_token_count
+
+                if not count_func:
+                    logger.warning(f"No tokenizer function found for model: {model_name}")
+                    continue
+
+                min_tokens = float('inf')
+                best_match = None
+
+                for phrase in phrases:
+                    token_count = count_func(phrase, model_name)
+                    
+                    if token_count is not None and token_count < min_tokens:
+                        min_tokens = token_count
+                        best_match = {'phrase': phrase, 'token_count': token_count}
+
+                if best_match:
+                    results_by_model[model_name] = {'best_match': best_match}
             
-            # Append the results for the current request object to the final list
-            final_results.append(req_results)
+            final_response.append({
+                'category': category,
+                'results_by_model': results_by_model
+            })
             
-        return jsonify(final_results)
-    
+        return jsonify(final_response)
+
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return jsonify({
