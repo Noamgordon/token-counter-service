@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import tiktoken
 from vertexai.preview import tokenization
 import logging
+import os
 
 app = Flask(__name__)
 
@@ -136,9 +137,9 @@ def home():
     return jsonify({
         'service': 'Token Counter API',
         'status': 'active',
-        'version': '1.0.0',
+        'version': '2.0.0', # Updated version
         'endpoints': {
-            '/count': 'POST - Count tokens for text',
+            '/count': 'POST - Count tokens for a batch of texts',
             '/models': 'GET - List supported models',
             '/health': 'GET - Health check'
         },
@@ -146,11 +147,18 @@ def home():
         'usage': {
             'method': 'POST',
             'url': '/count',
-            'body': {
-                'text': 'Your text here',
-                'model': 'gpt-4o',
-                'provider': 'openai'
-            }
+            'body': [
+                {
+                    'texts': ['Text 1', 'Text 2'],
+                    'model': 'gpt-4o',
+                    'provider': 'openai'
+                },
+                {
+                    'texts': ['Another text'],
+                    'model': 'gemini-1.5-pro',
+                    'provider': 'gemini'
+                }
+            ]
         }
     })
 
@@ -175,55 +183,66 @@ def list_models():
 
 @app.route('/count', methods=['POST'])
 def count_tokens():
-    """Main endpoint to count tokens"""
+    """Main endpoint to count tokens for a batch of texts"""
     try:
-        data = request.get_json()
+        requests_data = request.get_json()
         
-        if not data:
+        if not isinstance(requests_data, list):
             return jsonify({
                 'success': False,
-                'error': 'No JSON data provided'
+                'error': 'Invalid request format. Expected a JSON array of request objects.'
             }), 400
-        
-        text = data.get('text', '').strip()
-        model = data.get('model', '').strip()
-        provider = data.get('provider', '').strip().lower()
-        
-        # Validation
-        if not text:
-            return jsonify({
-                'success': False,
-                'error': 'Text field is required and cannot be empty'
-            }), 400
-        
-        if not model:
-            return jsonify({
-                'success': False,
-                'error': 'Model field is required'
-            }), 400
-        
-        if not provider:
-            return jsonify({
-                'success': False,
-                'error': 'Provider field is required (openai or gemini)'
-            }), 400
-        
-        # Route to appropriate counter
-        if provider == 'openai':
-            result = count_openai_tokens(text, model)
-        elif provider == 'gemini':
-            result = count_gemini_tokens(text, model)
-        else:
-            return jsonify({
-                'success': False,
-                'error': f'Unsupported provider: {provider}. Use "openai" or "gemini"'
-            }), 400
-        
-        # Add metadata
-        result['provider'] = provider
-        result['timestamp'] = int(__import__('time').time())
-        
-        return jsonify(result)
+
+        final_results = []
+        for req_obj in requests_data:
+            req_results = []
+            
+            # Extract data and handle potential errors
+            texts = req_obj.get('texts', [])
+            model = req_obj.get('model', '').strip()
+            provider = req_obj.get('provider', '').strip().lower()
+
+            if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+                req_results.append({'success': False, 'error': 'The "texts" field must be a list of strings.'})
+                final_results.append({'request_errors': req_results})
+                continue
+            
+            if not model:
+                req_results.append({'success': False, 'error': 'The "model" field is required.'})
+                final_results.append({'request_errors': req_results})
+                continue
+            
+            if not provider:
+                req_results.append({'success': False, 'error': 'The "provider" field is required (openai or gemini).'})
+                final_results.append({'request_errors': req_results})
+                continue
+
+            # Process each text within the current request object
+            for text_to_count in texts:
+                if not text_to_count.strip():
+                    result = {
+                        'success': False,
+                        'error': 'Text string cannot be empty'
+                    }
+                elif provider == 'openai':
+                    result = count_openai_tokens(text_to_count, model)
+                elif provider == 'gemini':
+                    result = count_gemini_tokens(text_to_count, model)
+                else:
+                    result = {
+                        'success': False,
+                        'error': f'Unsupported provider: {provider}. Use "openai" or "gemini"'
+                    }
+                
+                # Add metadata to each result
+                result['provider'] = provider
+                result['timestamp'] = int(__import__('time').time())
+                req_results.append(result)
+            
+            # Append the results for the current request object to the final list
+            final_results.append(req_results)
+            
+        return jsonify(final_results)
     
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
