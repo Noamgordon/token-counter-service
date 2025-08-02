@@ -25,9 +25,9 @@ GEMINI_MODELS = [
 def count_openai_tokens(text, model):
     """Count tokens for OpenAI models using tiktoken"""
     try:
-        # Manual mapping for newer models not yet supported by tiktoken.encoding_for_model()
+        # Model to encoding mapping for newer models that might not be supported
         MODEL_TO_ENCODING = {
-            # GPT-4o family uses o200k_base encoding
+            # GPT-4o family - try o200k_base first, fallback to cl100k_base
             'gpt-4o': 'o200k_base',
             'gpt-4o-mini': 'o200k_base',
             'gpt-4o-2024-05-13': 'o200k_base',
@@ -41,25 +41,53 @@ def count_openai_tokens(text, model):
             'o1-mini-2024-09-12': 'o200k_base',
         }
         
+        # Fallback encoding mapping if o200k_base is not available
+        FALLBACK_ENCODING = {
+            'gpt-4o': 'cl100k_base',
+            'gpt-4o-mini': 'cl100k_base',
+            'gpt-4o-2024-05-13': 'cl100k_base',
+            'gpt-4o-2024-08-06': 'cl100k_base',
+            'gpt-4o-mini-2024-07-18': 'cl100k_base',
+            'o1-preview': 'cl100k_base',
+            'o1-mini': 'cl100k_base',
+            'o1-preview-2024-09-12': 'cl100k_base',
+            'o1-mini-2024-09-12': 'cl100k_base',
+        }
+        
         encoding = None
         encoding_name = None
+        mapping_source = None
         
-        # First, check if the model has a manual mapping
-        if model in MODEL_TO_ENCODING:
-            encoding_name = MODEL_TO_ENCODING[model]
-            encoding = tiktoken.get_encoding(encoding_name)
-            logger.info(f"Using manual mapping: {model} -> {encoding_name}")
-        else:
-            # If not in manual map, try tiktoken's automatic mapping
-            try:
-                encoding = tiktoken.encoding_for_model(model)
-                encoding_name = encoding.name
-                logger.info(f"Using tiktoken automatic mapping: {model} -> {encoding_name}")
-            except KeyError:
-                # Fallback to a common encoding for truly unknown models
+        # Strategy 1: Try tiktoken's automatic mapping first (most reliable)
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+            encoding_name = encoding.name
+            mapping_source = 'automatic'
+            logger.info(f"Using tiktoken automatic mapping: {model} -> {encoding_name}")
+        except KeyError:
+            # Strategy 2: Try manual mapping if automatic fails
+            if model in MODEL_TO_ENCODING:
+                try:
+                    encoding_name = MODEL_TO_ENCODING[model]
+                    encoding = tiktoken.get_encoding(encoding_name)
+                    mapping_source = 'manual'
+                    logger.info(f"Using manual mapping: {model} -> {encoding_name}")
+                except Exception as fallback_error:
+                    # Strategy 3: Use fallback encoding if preferred encoding fails
+                    logger.warning(f"Failed to use {encoding_name} for {model}: {fallback_error}")
+                    if model in FALLBACK_ENCODING:
+                        encoding_name = FALLBACK_ENCODING[model]
+                        encoding = tiktoken.get_encoding(encoding_name)
+                        mapping_source = 'fallback_manual'
+                        logger.info(f"Using fallback mapping: {model} -> {encoding_name}")
+                    else:
+                        raise fallback_error
+            else:
+                # Strategy 4: Default fallback for completely unknown models
                 encoding_name = 'cl100k_base'
                 encoding = tiktoken.get_encoding(encoding_name)
-                logger.warning(f"Model {model} not recognized, falling back to {encoding_name}")
+                mapping_source = 'fallback_default'
+                logger.warning(f"Model {model} not recognized, using default: {encoding_name}")
 
         # Count tokens
         tokens = encoding.encode(text)
@@ -73,7 +101,7 @@ def count_openai_tokens(text, model):
             'text_length': len(text),
             'tokens_preview': tokens[:10] if len(tokens) > 10 else tokens,
             'method': 'local_tiktoken',
-            'mapping_source': 'manual' if model in MODEL_TO_ENCODING else ('automatic' if encoding else 'fallback')
+            'mapping_source': mapping_source
         }
         
     except Exception as e:
@@ -117,7 +145,7 @@ def home():
     return jsonify({
         'service': 'Token Counter API',
         'status': 'active',
-        'version': '3.0.0', # Updated version
+        'version': '3.0.1', # Updated version
         'endpoints': {
             '/count': 'POST - Count tokens for a batch of texts',
             '/models': 'GET - List supported models',
