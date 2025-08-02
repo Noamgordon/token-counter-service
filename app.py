@@ -97,7 +97,13 @@ def compare_phrases():
     Endpoint to process a batch of token comparison requests.
     """
     try:
-        batch_requests = request.get_json()
+        body = request.get_json()
+
+        # Check if the body contains a 'data' key, which is how n8n sends the batch
+        if 'data' in body and isinstance(body['data'], list):
+            batch_requests = body['data']
+        else:
+            batch_requests = body
 
         if not isinstance(batch_requests, list):
             return jsonify({
