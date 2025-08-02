@@ -25,10 +25,42 @@ GEMINI_MODELS = [
 def count_openai_tokens(text, model):
     """Count tokens for OpenAI models using tiktoken"""
     try:
-        # Use tiktoken.encoding_for_model, which is more resilient
-        # and automatically handles model-to-encoding mapping and fallbacks.
-        encoding = tiktoken.encoding_for_model(model)
+        # Manual mapping for newer models not yet supported by tiktoken.encoding_for_model()
+        MODEL_TO_ENCODING = {
+            # GPT-4o family uses o200k_base encoding
+            'gpt-4o': 'o200k_base',
+            'gpt-4o-mini': 'o200k_base',
+            'gpt-4o-2024-05-13': 'o200k_base',
+            'gpt-4o-2024-08-06': 'o200k_base',
+            'gpt-4o-mini-2024-07-18': 'o200k_base',
+            
+            # o1 family also uses o200k_base
+            'o1-preview': 'o200k_base',
+            'o1-mini': 'o200k_base',
+            'o1-preview-2024-09-12': 'o200k_base',
+            'o1-mini-2024-09-12': 'o200k_base',
+        }
         
+        encoding = None
+        encoding_name = None
+        
+        # First, check if the model has a manual mapping
+        if model in MODEL_TO_ENCODING:
+            encoding_name = MODEL_TO_ENCODING[model]
+            encoding = tiktoken.get_encoding(encoding_name)
+            logger.info(f"Using manual mapping: {model} -> {encoding_name}")
+        else:
+            # If not in manual map, try tiktoken's automatic mapping
+            try:
+                encoding = tiktoken.encoding_for_model(model)
+                encoding_name = encoding.name
+                logger.info(f"Using tiktoken automatic mapping: {model} -> {encoding_name}")
+            except KeyError:
+                # Fallback to a common encoding for truly unknown models
+                encoding_name = 'cl100k_base'
+                encoding = tiktoken.get_encoding(encoding_name)
+                logger.warning(f"Model {model} not recognized, falling back to {encoding_name}")
+
         # Count tokens
         tokens = encoding.encode(text)
         token_count = len(tokens)
@@ -37,13 +69,15 @@ def count_openai_tokens(text, model):
             'success': True,
             'token_count': token_count,
             'model': model,
-            'encoding': encoding.name,
+            'encoding': encoding_name,
             'text_length': len(text),
             'tokens_preview': tokens[:10] if len(tokens) > 10 else tokens,
-            'method': 'local_tiktoken'
+            'method': 'local_tiktoken',
+            'mapping_source': 'manual' if model in MODEL_TO_ENCODING else ('automatic' if encoding else 'fallback')
         }
+        
     except Exception as e:
-        logger.error(f"Error counting OpenAI tokens: {str(e)}")
+        logger.error(f"Error counting OpenAI tokens for model {model}: {str(e)}")
         return {
             'success': False,
             'error': str(e),
@@ -83,7 +117,7 @@ def home():
     return jsonify({
         'service': 'Token Counter API',
         'status': 'active',
-        'version': '2.0.1', # Updated version
+        'version': '3.0.0', # Updated version
         'endpoints': {
             '/count': 'POST - Count tokens for a batch of texts',
             '/models': 'GET - List supported models',
@@ -121,10 +155,8 @@ def health():
 @app.route('/models', methods=['GET'])
 def list_models():
     """List all supported models"""
-    # Note: We can no longer list OpenAI models explicitly as we rely on tiktoken's internal mapping.
-    # We will list the known Gemini models.
     return jsonify({
-        'openai_models': 'Dynamically supported by tiktoken library',
+        'openai_models': 'Dynamically supported by tiktoken library, plus manual mapping for new models.',
         'gemini_models': GEMINI_MODELS,
         'total_models': len(GEMINI_MODELS)
     })
