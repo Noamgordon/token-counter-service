@@ -73,7 +73,7 @@ def home():
     return jsonify({
         'service': 'Batch Token Comparison API',
         'status': 'active',
-        'version': '5.0.0', # Updated version
+        'version': '5.1.0', # Updated version
         'endpoints': {
             '/compare': 'POST - Compare token counts for a batch of phrases/models'
         },
@@ -142,18 +142,37 @@ def compare_phrases():
                     logger.warning(f"No tokenizer function found for model: {model_name}")
                     continue
 
+                # NEW: Collect all token counts for all phrases
+                phrase_token_counts = []
                 min_tokens = float('inf')
                 best_match = None
 
                 for phrase in phrases:
                     token_count = count_func(phrase, model_name)
                     
-                    if token_count is not None and token_count < min_tokens:
-                        min_tokens = token_count
-                        best_match = {'phrase': phrase, 'token_count': token_count}
+                    if token_count is not None:
+                        phrase_token_counts.append(token_count)
+                        
+                        if token_count < min_tokens:
+                            min_tokens = token_count
+                            best_match = {'phrase': phrase, 'token_count': token_count}
 
-                if best_match:
-                    results_by_model[model_name] = {'best_match': best_match}
+                # NEW: Check if all phrases have the same token count
+                if best_match and len(phrase_token_counts) > 0:
+                    all_same = len(set(phrase_token_counts)) == 1
+                    
+                    if all_same:
+                        # All phrases have the same token count
+                        logger.info(f"Model {model_name}: All phrases share same token count ({phrase_token_counts[0]})")
+                        results_by_model[model_name] = {
+                            'best_match': {
+                                'phrase': 'WARNING: ALL SHARE SAME TOKEN COUNT',
+                                'token_count': phrase_token_counts[0]
+                            }
+                        }
+                    else:
+                        # At least one phrase has different token count - return best match as normal
+                        results_by_model[model_name] = {'best_match': best_match}
             
             final_response.append({
                 'id': id, # Include the ID in the final response
